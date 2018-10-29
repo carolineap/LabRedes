@@ -11,6 +11,7 @@ import socket
 import numpy
 import pickle
 import time
+import random
 
 class Packet():
 		
@@ -61,6 +62,7 @@ def send(socket, node):
 		packet = Packet(node.id, a, node.myCosts)
 		print("Send packet to node " + str(a) + " with myCosts = " + str(node.myCosts))
 		socket.sendto(pickle.dumps(packet),(MCAST_GRP, MCAST_PORT + a))
+		time.sleep(random.randint(0, 2))
 
 def receiver(socket, node):
 	
@@ -71,11 +73,12 @@ def receiver(socket, node):
 			print("Received packet from " + str(packet.sourceid) + " with cost = " + str(packet.mincost))
 		except:
 			print("Waiting for new packet...")
+			break
 		else:	
 			for i in range(4):
 				node.updateTable(packet.sourceid, i, packet.mincost[i])
 				if (node.myCosts[i] > packet.mincost[i] + node.myCosts[packet.sourceid]):
-					print("Update my table from " + str(node.myCosts[i]) + "to " + str(packet.mincost[i] + node.myCosts[packet.sourceid]))
+					print("Update my table from " + str(node.myCosts[i]) + " to " + str(packet.mincost[i] + node.myCosts[packet.sourceid]))
 					node.myCosts[i] = packet.mincost[i] + node.myCosts[packet.sourceid]
 					node.updateTable(node.id, i, node.myCosts[i])
 					node.printCost()
@@ -107,8 +110,6 @@ def main():
 	node.printTable()
 
 	receiver(sock, node)
-	receiver.start()
-	
 
 if __name__ == "__main__": main()
 
