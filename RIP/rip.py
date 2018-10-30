@@ -5,7 +5,7 @@
 MCAST_GRP = '127.0.0.1'
 MCAST_PORT = 2048
 
-
+import threading
 import sys
 import socket
 import numpy
@@ -13,7 +13,8 @@ import pickle
 import time
 import random
 
-class Packet():
+NID = -1
+class Packet(): ## Estrutura do pacote a ser enviado e recebido rtpkt
 		
 	def __init__(self, sourceid, destid, mincost):
 		
@@ -34,82 +35,101 @@ class Node():
 		self.costs.fill(999)
 		self.socket = socket
 
-		for i in range(4):
-			if self.myCosts[i] != 999 and i != self.id:
+		for i in range(4):	#inicializando tabela
+			if self.myCosts[i][0] != 999 and i != self.id:
 				self.adj.append(i)	
-			self.updateTable(i, i, 0)
-			self.updateTable(nid, i, myCosts[i])
+			#self.updateTable(i, i, 0)
+			#self.updateTable(nid, i, myCosts[i])
 
 		print("My adj are " + str(self.adj))
 		update = 1
+		#send(socket, self)
 
-		send(socket, self)
-
-	def updateTable(self, i, j, cost):
-		self.costs[i][j] = cost
-		self.costs[j][i] = cost
+	def updateTable(self, i, cost, nextHop): # rtupdate
+		#self.costs[i][0] = cost
+		#self.costs[i][1] = nextHop
+		self.myCosts[i][0] = cost 
+		self.myCosts[i][1] = nextHop
 
 	def printCost(self):
 		print("I am node " + str(self.id) + " and my costs are " + str(self.myCosts))
 
 	def printTable(self):		
-		print("I am node " + str(self.id) + " and my table is \n" + str(self.costs))
+		print("I am node " + str(self.id) + " and my table is \n" )
+		for i in range(4):
+			print(self.myCosts[i])
+		print("\n")
 
 
 def send(socket, node):
 	
-	for a in node.adj:
-		packet = Packet(node.id, a, node.myCosts)
-		print("Send packet to node " + str(a) + " with myCosts = " + str(node.myCosts))
-		socket.sendto(pickle.dumps(packet),(MCAST_GRP, MCAST_PORT + a))
-		time.sleep(random.randint(0, 2))
+	for a in range(4):
+		if(a == node.myCosts[a][1] and a != NID):
+			packet = Packet(node.id, a, node.myCosts)
+			print("Send packet to node " + str(a) + " with myCosts = " + str(node.myCosts))
+			socket.sendto(pickle.dumps(packet),(MCAST_GRP, MCAST_PORT + a))
+			#time.sleep(random.randint(0, 2))
 
-def receiver(socket, node):
-	
-	while(True):
-		try: 
-			data, addr = socket.recvfrom(1024)
-			packet = pickle.loads(data)
-			print("Received packet from " + str(packet.sourceid) + " with cost = " + str(packet.mincost))
-		except:
-			print("Waiting for new packet...")
-			break
-		else:	
-			for i in range(4):
-				node.updateTable(packet.sourceid, i, packet.mincost[i])
-				if (node.myCosts[i] > packet.mincost[i] + node.myCosts[packet.sourceid]):
-					print("Update my table from " + str(node.myCosts[i]) + " to " + str(packet.mincost[i] + node.myCosts[packet.sourceid]))
-					node.myCosts[i] = packet.mincost[i] + node.myCosts[packet.sourceid]
-					node.updateTable(node.id, i, node.myCosts[i])
-					node.printCost()
-					send(socket, node)
-			node.printTable()
+class Receiver(threading.Thread):
+	def __init__(self, sock, node):
+		threading.Thread.__init__(self)
+		self.node = node
+		self.socket = sock
+
+	def run(self):
+
+		while(True):
+			try: 
+				data, addr = self.socket.recvfrom(1024)
+				packet = pickle.loads(data)
+				print("Received packet from " + str(packet.sourceid) + " with cost = " + str(packet.mincost))
+			except:
+				print("Waiting for new packet...")
+				
+			else:	
+				flag = False
+				for i in range(4):
+					#node.updateTable(i, packet.mincost[i][0], packet)
+					if (self.node.myCosts[i][0] > packet.mincost[i][0] + self.node.myCosts[packet.sourceid][0]): # se o custo que eu recebi é menor
+						print("Update my table cost from " + str(self.node.myCosts[i][0]) + " to cost " + str(packet.mincost[i][0] + self.node.myCosts[packet.sourceid][0]))
+						print("Update my table next Hop from " + str(self.node.myCosts[i][1]) + " to next Hop " + str(packet.mincost[i][1]))
+						#node.myCosts[i] = packet.mincost[i] + node.myCosts[packet.sourceid]
+						self.node.updateTable( i, packet.mincost[i][0]+self.node.myCosts[packet.sourceid][0], self.node.myCosts[packet.sourceid][1])#.mincost[i][1]) #Atualiza na tabela
+						flag = True
+						#node.printCost()
+				if(flag==True):		
+					send(self.socket, self.node)
+				self.node.printTable()
 				
 
 
 def main():
-
+	global NID
 	nid = int(sys.argv[1])
-
+	NID = nid;
 	ttl = 1
 	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 	sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, ttl)
 	sock.bind((MCAST_GRP, MCAST_PORT + nid))
 
-
 	if (nid == 0):
-		node = Node(nid, [0, 1, 3, 7], sock)
+		node = Node(nid, [[0,0], [1,1], [3,2], [7,3]], sock)
 	elif (nid == 1):
-		node = Node(nid, [1, 0, 1, 999], sock)
+		node = Node(nid, [[1,0], [0,1], [1,2], [999, None]], sock)
 	elif (nid == 2):
-		node = Node(nid, [3, 1, 0, 2], sock)
+		node = Node(nid, [[3,0], [1,1], [0,2], [2,3]], sock)
 	elif (nid == 3):
-		node = Node(nid, [7, 999, 2, 0], sock)
+		node = Node(nid, [[7,0], [999, None], [2,2], [0,3]], sock)
 
-	time.sleep(7)
+	
 	node.printTable()
+	
+	receiver = Receiver(sock, node)
+	receiver.start()
+	time.sleep(7)
+	send(sock, node)
 
-	receiver(sock, node)
+
 
 if __name__ == "__main__": main()
 
